@@ -29,3 +29,13 @@ targets:
         INFOPLIST_FILE: ios_native_app_v2/Info.plist
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+  YASHSWITests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: YASHSWITests
+    dependencies:
+      - target: YASHSWI
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"

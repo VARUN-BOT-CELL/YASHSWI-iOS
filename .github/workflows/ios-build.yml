@@ -73,6 +73,26 @@ jobs:
           name: YASHSWI-Appetize-Package
           path: ${{ runner.temp }}/YASHSWI-Appetize.zip
           if-no-files-found: error
+      - name: Run Keychain diagnostics
+        shell: bash
+        run: |
+          set -o pipefail
+
+          xcodebuild \
+            -project YASHSWI.xcodeproj \
+            -scheme YASHSWI \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee "$RUNNER_TEMP/yashswi-keychain-test.log"
+
+      - name: Upload Keychain diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: YASHSWI-Keychain-Diagnostic
+          path: ${{ runner.temp }}/yashswi-keychain-test.log
+          if-no-files-found: ignore
       - name: Upload compilation logs
         if: always()
         uses: actions/upload-artifact@v4
