@@ -6,6 +6,10 @@ class DashboardViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
 
+    private let primaryColor = UIColor(
+        red: 0.12, green: 0.23, blue: 0.54, alpha: 1
+    )
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
@@ -13,36 +17,25 @@ class DashboardViewController: UIViewController {
     }
 
     private func setupUI() {
-        view.backgroundColor = UIColor(
-            white: 0.96,
-            alpha: 1.0
-        )
+        view.backgroundColor = UIColor(white: 0.96, alpha: 1)
 
-        // Header
         let headerView = UIView()
-        headerView.backgroundColor = UIColor(
-            red: 0.12,
-            green: 0.23,
-            blue: 0.54,
-            alpha: 1.0
-        )
+        headerView.backgroundColor = primaryColor
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        // Logged-in employee
         let name = AppSession.shared.currentUser?.name ?? "User"
-        let role = AppSession.shared.currentUser?.role.lowercased() ?? "user"
+        let role = AppSession.shared.currentUser?.role ?? "user"
 
         let welcomeLabel = UILabel()
-        welcomeLabel.text =
-            "Hello, \(name.components(separatedBy: " ").first ?? name) 👋"
-        welcomeLabel.font = UIFont.boldSystemFont(ofSize: 24)
+        welcomeLabel.text = "Hello, \(name.components(separatedBy: " ").first ?? name) 👋"
+        welcomeLabel.font = .boldSystemFont(ofSize: 24)
         welcomeLabel.textColor = .white
 
         let roleLabel = UILabel()
         roleLabel.text = "Role: \(role.uppercased())"
-        roleLabel.font = UIFont.systemFont(ofSize: 14)
-        roleLabel.textColor = .lightText
+        roleLabel.font = .systemFont(ofSize: 14)
+        roleLabel.textColor = .white
 
         let headerStack = UIStackView(
             arrangedSubviews: [welcomeLabel, roleLabel]
@@ -50,10 +43,8 @@ class DashboardViewController: UIViewController {
         headerStack.axis = .vertical
         headerStack.spacing = 8
         headerStack.translatesAutoresizingMaskIntoConstraints = false
-
         headerView.addSubview(headerStack)
 
-        // Main scroll view
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
@@ -63,30 +54,19 @@ class DashboardViewController: UIViewController {
         scrollView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(
-                equalTo: view.topAnchor
-            ),
-            headerView.leadingAnchor.constraint(
-                equalTo: view.leadingAnchor
-            ),
-            headerView.trailingAnchor.constraint(
-                equalTo: view.trailingAnchor
-            ),
-            headerView.heightAnchor.constraint(
-                equalToConstant: 160
-            ),
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 160),
 
             headerStack.leadingAnchor.constraint(
-                equalTo: headerView.leadingAnchor,
-                constant: 20
+                equalTo: headerView.leadingAnchor, constant: 20
             ),
             headerStack.trailingAnchor.constraint(
-                equalTo: headerView.trailingAnchor,
-                constant: -20
+                equalTo: headerView.trailingAnchor, constant: -20
             ),
             headerStack.bottomAnchor.constraint(
-                equalTo: headerView.bottomAnchor,
-                constant: -20
+                equalTo: headerView.bottomAnchor, constant: -20
             ),
 
             scrollView.topAnchor.constraint(
@@ -103,63 +83,42 @@ class DashboardViewController: UIViewController {
             ),
 
             stackView.topAnchor.constraint(
-                equalTo: scrollView.topAnchor,
+                equalTo: scrollView.contentLayoutGuide.topAnchor,
                 constant: 20
             ),
+            stackView.bottomAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.bottomAnchor,
+                constant: -20
+            ),
             stackView.leadingAnchor.constraint(
-                equalTo: scrollView.leadingAnchor,
+                equalTo: scrollView.contentLayoutGuide.leadingAnchor,
                 constant: 20
             ),
             stackView.trailingAnchor.constraint(
-                equalTo: scrollView.trailingAnchor,
-                constant: -20
-            ),
-            stackView.bottomAnchor.constraint(
-                equalTo: scrollView.bottomAnchor,
+                equalTo: scrollView.contentLayoutGuide.trailingAnchor,
                 constant: -20
             ),
             stackView.widthAnchor.constraint(
-                equalTo: scrollView.widthAnchor,
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
                 constant: -40
             )
         ])
     }
 
-    // MARK: - Role-Based Dashboard
+    // MARK: - Dashboard
 
     private func loadMenuBasedOnRole() {
 
         let role = AppSession.shared.currentUser?
             .role.lowercased() ?? "user"
 
-        // Personal Workspace
         addSectionTitle("Personal Workspace 👤")
+        addGridButton("Attendance Tracking",
+                      color: primaryColor, textColor: .white)
+        addGridButton("Leave Management",
+                      color: primaryColor, textColor: .white)
 
-        addGridButton(
-            "Attendance Tracking",
-            color: UIColor(
-                red: 0.26,
-                green: 0.22,
-                blue: 0.79,
-                alpha: 1.0
-            ),
-            textColor: .white
-        )
-
-        addGridButton(
-            "Leave Management",
-            color: UIColor(
-                red: 0.26,
-                green: 0.22,
-                blue: 0.79,
-                alpha: 1.0
-            ),
-            textColor: .white
-        )
-
-        // Service Coordination
         if ["sc", "sm", "asm"].contains(role) {
-
             addSectionTitle("Service Coordination 🛠️")
             addGridButton("Daily Activity Report")
             addGridButton("Service Reports (FSR)")
@@ -172,7 +131,6 @@ class DashboardViewController: UIViewController {
             addGridButton("Stock Management")
 
         } else if ["admin", "md", "oh"].contains(role) {
-
             addSectionTitle("Management Panel 🏛️")
             addGridButton("User Management")
             addGridButton("Live Analytics")
@@ -181,7 +139,6 @@ class DashboardViewController: UIViewController {
             addGridButton("Manage Products")
 
         } else if role == "engineer" {
-
             addSectionTitle("Field Engineering 🔧")
             addGridButton("Submit New FSR")
             addGridButton("My Service History")
@@ -190,90 +147,70 @@ class DashboardViewController: UIViewController {
             addGridButton("Part Availability")
 
         } else if role == "sales" {
-
             addSectionTitle("Sales Portal 📈")
             addGridButton("View Leads")
             addGridButton("Manage Products")
             addGridButton("Visit Schedule")
         }
 
-        // Account
         addSectionTitle("Account ⚙️")
-
         addGridButton(
             "Logout",
-            color: UIColor(
-                red: 1.0,
-                green: 0.92,
-                blue: 0.92,
-                alpha: 1.0
-            ),
+            color: UIColor(red: 1, green: 0.92, blue: 0.92, alpha: 1),
             textColor: .systemRed
         )
     }
 
-    // MARK: - Section Title
+    // MARK: - UI Components
 
     private func addSectionTitle(_ title: String) {
-
         let label = UILabel()
         label.text = title
-        label.font = UIFont.boldSystemFont(ofSize: 14)
+        label.font = .boldSystemFont(ofSize: 14)
         label.textColor = .darkGray
+        label.numberOfLines = 0
 
-        let paddingView = UIView()
-        paddingView.addSubview(label)
-
+        let container = UIView()
+        container.addSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             label.topAnchor.constraint(
-                equalTo: paddingView.topAnchor,
-                constant: 16
+                equalTo: container.topAnchor, constant: 16
             ),
             label.bottomAnchor.constraint(
-                equalTo: paddingView.bottomAnchor,
-                constant: -8
+                equalTo: container.bottomAnchor, constant: -8
             ),
             label.leadingAnchor.constraint(
-                equalTo: paddingView.leadingAnchor
+                equalTo: container.leadingAnchor
+            ),
+            label.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor
             )
         ])
 
-        stackView.addArrangedSubview(paddingView)
+        stackView.addArrangedSubview(container)
     }
-
-    // MARK: - Dashboard Buttons
 
     private func addGridButton(
         _ text: String,
         color: UIColor = .white,
         textColor: UIColor = .black
     ) {
-
         let button = UIButton(type: .system)
-
         button.setTitle(text, for: .normal)
         button.setTitleColor(textColor, for: .normal)
-
         button.backgroundColor = color
-        button.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-
+        button.titleLabel?.font = .boldSystemFont(ofSize: 16)
         button.contentHorizontalAlignment = .left
-        button.titleEdgeInsets = UIEdgeInsets(
-            top: 0,
-            left: 20,
-            bottom: 0,
-            right: 0
+        button.contentEdgeInsets = UIEdgeInsets(
+            top: 0, left: 20, bottom: 0, right: 16
         )
 
         button.layer.cornerRadius = 12
         button.layer.shadowColor = UIColor.black.cgColor
         button.layer.shadowOpacity = 0.05
-        button.layer.shadowOffset = CGSize(
-            width: 0,
-            height: 2
-        )
+        button.layer.shadowOffset = CGSize(width: 0, height: 2)
         button.layer.shadowRadius = 4
 
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -281,156 +218,197 @@ class DashboardViewController: UIViewController {
             equalToConstant: 70
         ).isActive = true
 
-        // Button navigation
-        if text == "Logout" {
+        switch text {
 
+        case "Logout":
             button.addTarget(
-                self,
-                action: #selector(logoutTapped),
+                self, action: #selector(logoutTapped),
                 for: .touchUpInside
             )
 
-      
-} else if text == "Attendance Tracking" {
+        case "Attendance Tracking":
+            button.addTarget(
+                self, action: #selector(attendanceTapped),
+                for: .touchUpInside
+            )
 
-    button.addTarget(
-        self,
-        action: #selector(attendanceTapped),
-        for: .touchUpInside
-    )
+        case "Leave Management":
+            button.addTarget(
+                self, action: #selector(openLeaveWebsite),
+                for: .touchUpInside
+            )
 
-} else if text == "Leave Management" {
+        case "Service Reports (FSR)", "Submit New FSR":
+            button.addTarget(
+                self, action: #selector(openFSRWebsite),
+                for: .touchUpInside
+            )
 
-    button.addTarget(
-        self,
-        action: #selector(leaveManagementTapped),
-        for: .touchUpInside
-    )
-    
-} else if text == "Service Reports (FSR)" ||
-          text == "Submit New FSR" {
+        case "My Service History":
+            button.addTarget(
+                self, action: #selector(openFSRHistory),
+                for: .touchUpInside
+            )
 
-    button.addTarget(
-        self,
-        action: #selector(fsrTapped),
-        for: .touchUpInside
-    )
+        case "My Petrol Claims":
+            button.addTarget(
+                self, action: #selector(openPetrolClaims),
+                for: .touchUpInside
+            )
 
-} else if [
-    "Live Stock Viewer",
-    "Stock Management",
-    "Part Availability",
-    "Part Requests"
-].contains(text) {
+        case "Live Stock Viewer",
+             "Stock Management",
+             "Part Availability",
+             "Part Requests":
+            button.addTarget(
+                self, action: #selector(inventoryTapped),
+                for: .touchUpInside
+            )
 
-    button.addTarget(
-        self,
-        action: #selector(inventoryTapped),
-        for: .touchUpInside
-    )
+        case "Manage Products":
+            button.addTarget(
+                self, action: #selector(productsTapped),
+                for: .touchUpInside
+            )
 
-} else if text == "Manage Products" {
+        default:
+            button.addTarget(
+                self, action: #selector(genericMenuTapped(_:)),
+                for: .touchUpInside
+            )
+        }
 
-    button.addTarget(
-        self,
-        action: #selector(productsTapped),
-        for: .touchUpInside
-    )
-
-} else {
-
-    button.addTarget(
-        self,
-        action: #selector(genericMenuTapped(_:)),
-        for: .touchUpInside
-    )
-}
-
-        // Add button to dashboard
         stackView.addArrangedSubview(button)
     }
 
-@objc private func leaveManagementTapped() {
-
-    let leaveVC = LeaveManagementViewController()
-
-    leaveVC.modalPresentationStyle = .fullScreen
-
-    present(leaveVC, animated: true)
-}
-
-@objc private func productsTapped() {
-    let productsVC = ProductListViewController()
-    productsVC.modalPresentationStyle = .fullScreen
-    present(productsVC, animated: true)
-}
-
-@objc private func inventoryTapped() {
-    let inventoryVC = InventoryViewController()
-    inventoryVC.modalPresentationStyle = .fullScreen
-    present(inventoryVC, animated: true)
-}
-
-
-@objc private func fsrTapped() {
-    let fsrVC = FSRViewController()
-    fsrVC.modalPresentationStyle = .fullScreen
-    present(fsrVC, animated: true)
-}
-
-    // MARK: - Attendance Navigation
+    // MARK: - Existing Native Screens
 
     @objc private func attendanceTapped() {
+        let controller = AttendanceViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
 
-        let attendanceVC = AttendanceViewController()
+    @objc private func productsTapped() {
+        let controller = ProductListViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
 
-        attendanceVC.modalPresentationStyle = .fullScreen
+    @objc private func inventoryTapped() {
+        let controller = InventoryViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
 
-        present(attendanceVC, animated: true)
+    // MARK: - Website Feature Integration
+
+    private func openWebsiteFeature(_ path: String) {
+
+        guard AppSession.shared.isAuthenticated else {
+            showAlert(
+                "Login Required",
+                "Please sign in to continue."
+            )
+            return
+        }
+
+        guard let url = URL(
+            string: "https://yashswi.in/" + path
+        ),
+        url.scheme == "https",
+        url.host == "yashswi.in" else {
+            showAlert(
+                "Navigation Error",
+                "Unable to open this feature."
+            )
+            return
+        }
+
+        let controller = YashswiWebViewController(
+            dashboardURL: url
+        )
+
+        // The website opens through the existing
+        // WebView implementation and cookie store.
+        let navigation = UINavigationController(
+            rootViewController: controller
+        )
+
+        controller.title = "YASHSWI"
+        controller.navigationItem.leftBarButtonItem =
+            UIBarButtonItem(
+                title: "Close",
+                style: .plain,
+                target: self,
+                action: #selector(closeWebsiteFeature)
+            )
+
+        navigation.modalPresentationStyle = .fullScreen
+        present(navigation, animated: true)
+    }
+
+    @objc private func closeWebsiteFeature() {
+        dismiss(animated: true)
+    }
+
+    @objc private func openLeaveWebsite() {
+        openWebsiteFeature("user/apply_leave.php")
+    }
+
+    @objc private func openFSRWebsite() {
+        openWebsiteFeature("forms/fsr_new.php")
+    }
+
+    @objc private func openFSRHistory() {
+        openWebsiteFeature("forms/my_fsr.php")
+    }
+
+    @objc private func openPetrolClaims() {
+        openWebsiteFeature(
+            "forms/petrol_allowance/my_allowance_status.php"
+        )
     }
 
     // MARK: - Logout
 
     @objc private func logoutTapped() {
-
         AppSession.shared.signOut()
 
         let defaults = UserDefaults.standard
-
-        [
-            "USER_ROLE",
-            "USER_NAME",
-            "EMP_ID"
-        ].forEach {
+        ["USER_ROLE", "USER_NAME", "EMP_ID"].forEach {
             defaults.removeObject(forKey: $0)
         }
 
         if let window = view.window {
             window.rootViewController = LoginViewController()
+            window.makeKeyAndVisible()
         }
     }
 
-    // MARK: - Other Dashboard Modules
+    // MARK: - Unimplemented Modules
 
-    @objc private func genericMenuTapped(
-        _ sender: UIButton
+    @objc private func genericMenuTapped(_ sender: UIButton) {
+        let title = sender.title(for: .normal) ?? "Screen"
+
+        showAlert(
+            title,
+            "This module is currently under development."
+        )
+    }
+
+    private func showAlert(
+        _ title: String,
+        _ message: String
     ) {
-
-        let title = sender.title(
-            for: .normal
-        ) ?? "Screen"
-
         let alert = UIAlertController(
             title: title,
-            message: "This native screen is currently under construction.",
+            message: message,
             preferredStyle: .alert
         )
 
         alert.addAction(
-            UIAlertAction(
-                title: "OK",
-                style: .default
-            )
+            UIAlertAction(title: "OK", style: .default)
         )
 
         present(alert, animated: true)
