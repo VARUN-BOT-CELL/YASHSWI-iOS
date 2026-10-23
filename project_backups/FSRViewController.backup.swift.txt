@@ -1,0 +1,176 @@
+import UIKit
+
+/// Draft Field Service Report form.
+/// Does not upload any report. Confirm backend requirements for HMR photo,
+/// customer signature, and accepted visit types before enabling submission.
+final class FSRViewController: UIViewController {
+
+    private let machineField = UITextField()
+    private let visitTypeField = UITextField()
+    private let visitPurposeField = UITextField()
+    private let hmrField = UITextField()
+    private let customerIssueView = UITextView()
+    private let engineerIssueView = UITextView()
+    private let actionView = UITextView()
+    private let partsView = UITextView()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupUI()
+    }
+
+    private func setupUI() {
+        view.backgroundColor = .systemBackground
+
+        let backButton = UIButton(type: .system)
+        backButton.setTitle("← Dashboard", for: .normal)
+        backButton.contentHorizontalAlignment = .left
+        backButton.addTarget(self, action: #selector(goBack), for: .touchUpInside)
+
+        let titleLabel = makeLabel("Field Service Report", size: 26, bold: true)
+        let engineerName = AppSession.shared.currentUser?.name ?? "Unknown employee"
+        let engineerLabel = makeLabel("Engineer: \(engineerName)", size: 15)
+        engineerLabel.textColor = .secondaryLabel
+
+        setupField(machineField, placeholder: "Machine number")
+        setupField(visitTypeField, placeholder: "Visit type")
+        setupField(visitPurposeField, placeholder: "Visit purpose")
+        setupField(hmrField, placeholder: "HMR / hour meter reading")
+        hmrField.keyboardType = .numberPad
+
+        setupTextView(customerIssueView, label: "Customer reported issue")
+        setupTextView(engineerIssueView, label: "Engineer findings")
+        setupTextView(actionView, label: "Action taken")
+        setupTextView(partsView, label: "Parts used (optional)")
+
+        let previewButton = UIButton(type: .system)
+        previewButton.setTitle("Preview FSR — Not Submitted", for: .normal)
+        previewButton.setTitleColor(.white, for: .normal)
+        previewButton.backgroundColor = UIColor(red: 0.12, green: 0.23, blue: 0.54, alpha: 1)
+        previewButton.layer.cornerRadius = 12
+        previewButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
+        previewButton.addTarget(self, action: #selector(previewTapped), for: .touchUpInside)
+
+        let notice = makeLabel(
+            "Draft only. No service report is sent to YASHSWI. " +
+            "Photo evidence, customer signature, and live submission " +
+            "will be added after confirming the backend requirements.",
+            size: 13
+        )
+        notice.textColor = .secondaryLabel
+
+        let stack = UIStackView(arrangedSubviews: [
+            backButton,
+            titleLabel,
+            engineerLabel,
+            makeLabel("Machine number", size: 15, bold: true), machineField,
+            makeLabel("Visit type", size: 15, bold: true), visitTypeField,
+            makeLabel("Visit purpose", size: 15, bold: true), visitPurposeField,
+            makeLabel("HMR", size: 15, bold: true), hmrField,
+            makeLabel("Customer reported issue", size: 15, bold: true), customerIssueView,
+            makeLabel("Engineer findings", size: 15, bold: true), engineerIssueView,
+            makeLabel("Action taken", size: 15, bold: true), actionView,
+            makeLabel("Parts used", size: 15, bold: true), partsView,
+            previewButton,
+            notice
+        ])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = UIScrollView()
+        scrollView.keyboardDismissMode = .interactive
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 24),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -24),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -48)
+        ])
+    }
+
+    private func makeLabel(_ text: String, size: CGFloat, bold: Bool = false) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = bold ? .boldSystemFont(ofSize: size) : .systemFont(ofSize: size)
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func setupField(_ field: UITextField, placeholder: String) {
+        field.placeholder = placeholder
+        field.borderStyle = .roundedRect
+        field.autocorrectionType = .no
+        field.heightAnchor.constraint(equalToConstant: 46).isActive = true
+    }
+
+    private func setupTextView(_ textView: UITextView, label: String) {
+        textView.backgroundColor = .secondarySystemBackground
+        textView.layer.cornerRadius = 10
+        textView.font = .systemFont(ofSize: 16)
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        textView.heightAnchor.constraint(equalToConstant: 88).isActive = true
+        textView.accessibilityLabel = label
+    }
+
+    private func trimmed(_ text: String?) -> String {
+        (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @objc private func previewTapped() {
+        view.endEditing(true)
+
+        let machine = trimmed(machineField.text)
+        let visitType = trimmed(visitTypeField.text)
+        let purpose = trimmed(visitPurposeField.text)
+        let hmrText = trimmed(hmrField.text)
+        let customerIssue = trimmed(customerIssueView.text)
+        let engineerIssue = trimmed(engineerIssueView.text)
+        let action = trimmed(actionView.text)
+        let parts = trimmed(partsView.text)
+
+        guard !machine.isEmpty, !visitType.isEmpty, !purpose.isEmpty,
+              !customerIssue.isEmpty, !engineerIssue.isEmpty, !action.isEmpty else {
+            showAlert("Missing details", "Complete the required fields before previewing the report.")
+            return
+        }
+        guard let hmr = Int(hmrText), hmr >= 0 else {
+            showAlert("Invalid HMR", "Enter a valid non-negative whole-number hour meter reading.")
+            return
+        }
+
+        showAlert("FSR Preview — Not Submitted", """
+        Machine: \(machine)
+        Engineer: \(AppSession.shared.currentUser?.name ?? "Unknown employee")
+        Visit type: \(visitType)
+        Purpose: \(purpose)
+        HMR: \(hmr)
+
+        Customer issue: \(customerIssue)
+        Engineer findings: \(engineerIssue)
+        Action taken: \(action)
+        Parts used: \(parts.isEmpty ? "None entered" : parts)
+
+        This is only a preview. Nothing has been sent to the company.
+        """)
+    }
+
+    @objc private func goBack() {
+        dismiss(animated: true)
+    }
+
+    private func showAlert(_ title: String, _ message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+}

@@ -1,0 +1,201 @@
+
+import UIKit
+
+final class LoginViewController: UIViewController {
+
+    private let empIdTextField = UITextField()
+    private let passwordTextField = UITextField()
+    private let loginButton = UIButton(type: .system)
+    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupUI()
+    }
+
+    private func setupUI() {
+        view.backgroundColor = .systemGroupedBackground
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Welcome Back"
+        titleLabel.font = .boldSystemFont(ofSize: 30)
+        titleLabel.textAlignment = .center
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Sign in to your YASHSWI employee account"
+        subtitleLabel.font = .systemFont(ofSize: 14)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 0
+
+        configureTextField(empIdTextField, placeholder: "Employee ID")
+        empIdTextField.autocapitalizationType = .none
+        empIdTextField.autocorrectionType = .no
+        empIdTextField.textContentType = .username
+        empIdTextField.returnKeyType = .next
+        empIdTextField.delegate = self
+
+        configureTextField(passwordTextField, placeholder: "Password")
+        passwordTextField.isSecureTextEntry = true
+        passwordTextField.textContentType = .password
+        passwordTextField.returnKeyType = .done
+        passwordTextField.delegate = self
+
+        loginButton.setTitle("Sign In", for: .normal)
+        loginButton.setTitleColor(.white, for: .normal)
+        loginButton.backgroundColor = UIColor(
+            red: 0.12,
+            green: 0.23,
+            blue: 0.54,
+            alpha: 1
+        )
+        loginButton.titleLabel?.font = .boldSystemFont(ofSize: 17)
+        loginButton.layer.cornerRadius = 12
+        loginButton.heightAnchor.constraint(equalToConstant: 54).isActive = true
+        loginButton.addTarget(
+            self,
+            action: #selector(loginTapped),
+            for: .touchUpInside
+        )
+
+        loadingIndicator.hidesWhenStopped = true
+
+        let stack = UIStackView(arrangedSubviews: [
+            titleLabel,
+            subtitleLabel,
+            empIdTextField,
+            passwordTextField,
+            loginButton,
+            loadingIndicator
+        ])
+        stack.axis = .vertical
+        stack.spacing = 18
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = UIScrollView()
+        scrollView.keyboardDismissMode = .interactive
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor
+            ),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            stack.leadingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.leadingAnchor,
+                constant: 28
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.trailingAnchor,
+                constant: -28
+            ),
+            stack.topAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.topAnchor,
+                constant: 80
+            ),
+            stack.bottomAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.bottomAnchor,
+                constant: -32
+            ),
+            stack.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -56
+            )
+        ])
+    }
+
+    private func configureTextField(
+        _ field: UITextField,
+        placeholder: String
+    ) {
+        field.placeholder = placeholder
+        field.backgroundColor = .secondarySystemGroupedBackground
+        field.borderStyle = .roundedRect
+        field.font = .systemFont(ofSize: 16)
+        field.heightAnchor.constraint(equalToConstant: 54).isActive = true
+    }
+
+    @objc private func loginTapped() {
+        view.endEditing(true)
+
+        let empId = (empIdTextField.text ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let password = passwordTextField.text ?? ""
+
+        guard !empId.isEmpty, !password.isEmpty else {
+            showAlert(message: "Please enter your Employee ID and password.")
+            return
+        }
+
+        setLoading(true)
+
+        let request = LoginRequest(empId: empId, pass: password)
+
+        ApiService.shared.performLogin(request: request) { [weak self] result in
+            guard let self = self else { return }
+
+            self.setLoading(false)
+
+            switch result {
+            case .success(let response):
+                guard response.success, let user = response.user else {
+                    self.showAlert(message: response.message)
+                    return
+                }
+
+                AppSession.shared.signIn(user)
+                self.passwordTextField.text = nil
+
+                if let window = self.view.window {
+                    window.rootViewController = DashboardViewController()
+                    window.makeKeyAndVisible()
+                }
+
+            case .failure(let error):
+                self.showAlert(message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func setLoading(_ loading: Bool) {
+        loginButton.isEnabled = !loading
+        loginButton.alpha = loading ? 0.6 : 1
+
+        empIdTextField.isEnabled = !loading
+        passwordTextField.isEnabled = !loading
+
+        if loading {
+            loadingIndicator.startAnimating()
+        } else {
+            loadingIndicator.stopAnimating()
+        }
+    }
+
+    private func showAlert(message: String) {
+        let alert = UIAlertController(
+            title: "Employee Login",
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+}
+
+extension LoginViewController: UITextFieldDelegate {
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        if textField === empIdTextField {
+            passwordTextField.becomeFirstResponder()
+        } else {
+            loginTapped()
+        }
+        return true
+    }
+}

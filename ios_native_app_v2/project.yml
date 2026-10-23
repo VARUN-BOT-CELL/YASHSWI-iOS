@@ -1,0 +1,34 @@
+# Portable XcodeGen project definition.
+# Generate the .xcodeproj on macOS with: xcodegen generate
+name: YashswiNative
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+targets:
+  YashswiNative:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: AppDelegate.swift
+      - path: SceneDelegate.swift
+      - path: AppSession.swift
+      - path: Models.swift
+      - path: ApiService.swift
+      - path: SplashViewController.swift
+      - path: LoginViewController.swift
+      - path: DashboardViewController.swift
+      - path: AttendanceViewController.swift
+      - path: LeaveManagementViewController.swift
+      - path: FSRViewController.swift
+      - path: InventoryViewController.swift
+      - path: ProductListViewController.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.yashswinative
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"

@@ -1,0 +1,319 @@
+
+import Foundation
+import CoreLocation
+
+final class YashswiLocationManager: NSObject,
+    CLLocationManagerDelegate {
+
+    // MARK: - Singleton
+
+    static let shared = YashswiLocationManager()
+
+    // MARK: - Core Location
+
+    private let manager = CLLocationManager()
+
+    private(set) var isTracking = false
+    private(set) var latestLocation: CLLocation?
+
+    // MARK: - Submission Configuration
+
+    private let minimumSubmissionInterval: TimeInterval = 60
+
+    private var lastSubmissionAttempt: Date?
+    private var submissionInProgress = false
+
+    // Prevent delayed responses from older tracking sessions
+    // from modifying the current session state.
+    private var trackingSessionId = UUID()
+
+    // Keep disabled until backend authentication,
+    // attendance state and response validation are complete.
+    private let automaticSubmissionEnabled = false
+
+    // MARK: - Callbacks
+
+    var onLocationUpdated: ((CLLocation) -> Void)?
+    var onLocationError: ((Error) -> Void)?
+    var onLocationDisabled: (() -> Void)?
+
+    // MARK: - Initialization
+
+    private override init() {
+        super.init()
+
+        manager.delegate = self
+
+        manager.desiredAccuracy =
+            kCLLocationAccuracyNearestTenMeters
+
+        manager.distanceFilter = 25
+
+        manager.pausesLocationUpdatesAutomatically = true
+
+        // Background location updates remain disabled
+        // until the user has appropriate authorization
+        // and an active tracking session is started.
+        manager.allowsBackgroundLocationUpdates = false
+
+        manager.showsBackgroundLocationIndicator = true
+    }
+
+    // MARK: - Location Availability
+
+    var isLocationAvailable: Bool {
+        CLLocationManager.locationServicesEnabled() &&
+        (
+            manager.authorizationStatus == .authorizedWhenInUse ||
+            manager.authorizationStatus == .authorizedAlways
+        )
+    }
+
+    // MARK: - Permission Requests
+
+    func requestPermission() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func requestBackgroundLocationPermission() {
+        guard CLLocationManager.locationServicesEnabled() else {
+            return
+        }
+
+        switch manager.authorizationStatus {
+
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+
+        case .authorizedWhenInUse:
+            manager.requestAlwaysAuthorization()
+
+        case .authorizedAlways:
+            // Permission already granted.
+            break
+
+        case .denied, .restricted:
+            // The employee must change the permission
+            // manually through iPhone Settings.
+            break
+
+        @unknown default:
+            break
+        }
+    }
+
+    var hasBackgroundLocationPermission: Bool {
+        manager.authorizationStatus == .authorizedAlways
+    }
+
+    // MARK: - Start Tracking
+
+    @discardableResult
+    func startTracking() -> Bool {
+
+        guard isLocationAvailable else {
+            requestPermission()
+            return false
+        }
+
+        // Do not restart an already active session.
+        guard !isTracking else {
+            return true
+        }
+
+        let hasAlwaysPermission =
+            manager.authorizationStatus == .authorizedAlways
+
+        // Background updates require appropriate
+        // authorization and project configuration.
+        manager.allowsBackgroundLocationUpdates =
+            hasAlwaysPermission
+
+        manager.showsBackgroundLocationIndicator = true
+
+        // Start a new tracking session.
+        trackingSessionId = UUID()
+
+        submissionInProgress = false
+        lastSubmissionAttempt = nil
+
+        isTracking = true
+
+        manager.startUpdatingLocation()
+
+        return true
+    }
+
+    // MARK: - Stop Tracking
+
+    func stopTracking() {
+
+        manager.stopUpdatingLocation()
+
+        manager.allowsBackgroundLocationUpdates = false
+
+        isTracking = false
+
+        // Invalidate callbacks from the old session.
+        trackingSessionId = UUID()
+
+        submissionInProgress = false
+        lastSubmissionAttempt = nil
+    }
+
+    // MARK: - Request Current Location
+
+    func requestCurrentLocation() {
+
+        guard isLocationAvailable else {
+            requestPermission()
+            return
+        }
+
+        manager.requestLocation()
+    }
+
+    // MARK: - Controlled GPS Submission
+
+    private func submitLocationIfNeeded(
+        _ location: CLLocation
+    ) {
+
+        // Automatic GPS uploads are intentionally disabled.
+        guard automaticSubmissionEnabled else {
+            return
+        }
+
+        guard isTracking else {
+            return
+        }
+
+        // Avoid overlapping requests within a session.
+        guard !submissionInProgress else {
+            return
+        }
+
+        if let lastAttempt = lastSubmissionAttempt,
+           Date().timeIntervalSince(lastAttempt) <
+                minimumSubmissionInterval {
+            return
+        }
+
+        guard AppSession.shared.authenticatedEmployeeId != nil else {
+            return
+        }
+
+        let sessionId = trackingSessionId
+
+        submissionInProgress = true
+        lastSubmissionAttempt = Date()
+
+        YashswiTrackingApi.shared.sendLocation(location) {
+            [weak self] result in
+
+            DispatchQueue.main.async {
+
+                guard let self = self else {
+                    return
+                }
+
+                // Ignore responses from earlier sessions.
+                guard self.trackingSessionId == sessionId else {
+                    return
+                }
+
+                self.submissionInProgress = false
+
+                switch result {
+
+                case .success:
+                    // HTTP success alone does not confirm
+                    // that the PHP backend saved the GPS point.
+                    break
+
+                case .failure(let error):
+                    print(
+                        "GPS submission failed: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Foreground Location Check
+
+    func checkLocationAvailability() {
+
+        guard isTracking else {
+            return
+        }
+
+        guard !isLocationAvailable else {
+            return
+        }
+
+        stopTracking()
+
+        onLocationDisabled?()
+    }
+
+    // MARK: - CLLocationManagerDelegate
+
+    func locationManager(
+        _ manager: CLLocationManager,
+        didUpdateLocations locations: [CLLocation]
+    ) {
+
+        guard let location = locations.last else {
+            return
+        }
+
+        // Reject inaccurate or stale GPS coordinates.
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= 100,
+              abs(location.timestamp.timeIntervalSinceNow) <= 30 else {
+            return
+        }
+
+        // Keep the latest location available for
+        // one-time requests and existing callbacks.
+        latestLocation = location
+
+        onLocationUpdated?(location)
+
+        // Does nothing while automaticSubmissionEnabled
+        // remains false.
+        submitLocationIfNeeded(location)
+    }
+
+    func locationManager(
+        _ manager: CLLocationManager,
+        didFailWithError error: Error
+    ) {
+
+        onLocationError?(error)
+    }
+
+    func locationManagerDidChangeAuthorization(
+        _ manager: CLLocationManager
+    ) {
+
+        guard isTracking else {
+            return
+        }
+
+        if !isLocationAvailable {
+
+            stopTracking()
+
+            onLocationDisabled?()
+
+            return
+        }
+
+        // Update background location availability
+        // if authorization changes during tracking.
+        manager.allowsBackgroundLocationUpdates =
+            manager.authorizationStatus == .authorizedAlways
+    }
+}

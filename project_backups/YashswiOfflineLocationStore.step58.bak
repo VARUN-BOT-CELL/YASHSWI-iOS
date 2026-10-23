@@ -1,0 +1,126 @@
+
+import Foundation
+import CoreLocation
+
+struct YashswiOfflineLocationPoint: Codable {
+    let id: UUID
+    let employeeId: String
+    let latitude: Double
+    let longitude: Double
+    let timestamp: Date
+}
+
+final class YashswiOfflineLocationStore {
+
+    static let shared = YashswiOfflineLocationStore()
+
+    private let storageKey = "yashswi.offline.gps.points"
+    private let maximumPoints = 1000
+
+    private init() {}
+
+    enum StoreError: LocalizedError {
+        case invalidEmployee
+        case invalidLocation
+        case encodingFailed
+        case storageFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidEmployee:
+                return "Employee ID is missing."
+            case .invalidLocation:
+                return "Invalid GPS coordinates."
+            case .encodingFailed:
+                return "Unable to encode offline GPS data."
+            case .storageFailed:
+                return "Unable to save offline GPS data securely."
+            }
+        }
+    }
+
+    func pendingPoints() -> [YashswiOfflineLocationPoint] {
+        guard let data = KeychainHelper.shared.read(
+            forKey: storageKey
+        ) else {
+            return []
+        }
+
+        return (try? JSONDecoder().decode(
+            [YashswiOfflineLocationPoint].self,
+            from: data
+        )) ?? []
+    }
+
+    @discardableResult
+    func saveLocation(
+        _ location: CLLocation,
+        employeeId: String
+    ) -> Result<Void, Error> {
+
+        guard !employeeId.isEmpty else {
+            return .failure(StoreError.invalidEmployee)
+        }
+
+        guard CLLocationCoordinate2DIsValid(
+            location.coordinate
+        ), location.horizontalAccuracy >= 0 else {
+            return .failure(StoreError.invalidLocation)
+        }
+
+        let point = YashswiOfflineLocationPoint(
+            id: UUID(),
+            employeeId: employeeId,
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            timestamp: location.timestamp
+        )
+
+        var points = pendingPoints()
+        points.append(point)
+
+        // Avoid unlimited growth of sensitive location data.
+        if points.count > maximumPoints {
+            points = Array(points.suffix(maximumPoints))
+        }
+
+        return persist(points)
+    }
+
+    @discardableResult
+    func removePoint(
+        id: UUID
+    ) -> Result<Void, Error> {
+        var points = pendingPoints()
+        points.removeAll { $0.id == id }
+        return persist(points)
+    }
+
+    @discardableResult
+    func clearAll() -> Result<Void, Error> {
+        let deleted = KeychainHelper.shared.delete(
+            forKey: storageKey
+        )
+
+        return deleted
+            ? .success(())
+            : .failure(StoreError.storageFailed)
+    }
+
+    private func persist(
+        _ points: [YashswiOfflineLocationPoint]
+    ) -> Result<Void, Error> {
+        guard let data = try? JSONEncoder().encode(points) else {
+            return .failure(StoreError.encodingFailed)
+        }
+
+        guard KeychainHelper.shared.save(
+            data,
+            forKey: storageKey
+        ) else {
+            return .failure(StoreError.storageFailed)
+        }
+
+        return .success(())
+    }
+}

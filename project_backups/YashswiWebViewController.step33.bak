@@ -1,0 +1,214 @@
+
+import UIKit
+import WebKit
+
+final class YashswiWebViewController: UIViewController, WKNavigationDelegate {
+
+    private let dashboardURL: URL
+    private var webView: WKWebView!
+    private var isLoggingOut = false
+
+    init(dashboardURL: URL) {
+        self.dashboardURL = dashboardURL
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        view.backgroundColor = .systemBackground
+        setupWebView()
+        loadDashboard()
+    }
+
+    // MARK: - WebView Setup
+
+    private func setupWebView() {
+       let configuration = WKWebViewConfiguration()
+configuration.websiteDataStore = .default()
+configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        webView = WKWebView(
+            frame: .zero,
+            configuration: configuration
+        )
+
+        webView.navigationDelegate = self
+        webView.allowsBackForwardNavigationGestures = true
+        webView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(webView)
+
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor
+            ),
+            webView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor
+            ),
+            webView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor
+            ),
+            webView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor
+            )
+        ])
+    }
+
+    private func loadDashboard() {
+        webView.load(URLRequest(url: dashboardURL))
+    }
+
+    // MARK: - Navigation
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard !isLoggingOut else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        let scheme = url.scheme?.lowercased() ?? ""
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+
+        let isYashswi =
+            host == "yashswi.in" ||
+            host.hasSuffix(".yashswi.in")
+
+        // Open phone, WhatsApp and email links externally.
+        if ["tel", "whatsapp", "mailto"].contains(scheme) {
+            decisionHandler(.cancel)
+            UIApplication.shared.open(url, options: [:])
+            return
+        }
+
+        if scheme == "about" &&
+            url.absoluteString == "about:blank" {
+            decisionHandler(.allow)
+            return
+        }
+
+        guard scheme == "https" || scheme == "http" else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        // Detect logout and expired login navigation.
+        if isYashswi &&
+            (path.hasSuffix("/auth/login.php") ||
+             path.hasSuffix("/logout.php")) {
+
+            decisionHandler(.cancel)
+            completeLocalLogout()
+            return
+        }
+
+        // Keep external websites outside the app.
+        if !isYashswi {
+            decisionHandler(.cancel)
+            UIApplication.shared.open(url, options: [:])
+            return
+        }
+
+        // Keep YASHSWI pages inside the app.
+        decisionHandler(.allow)
+    }
+
+    // MARK: - Local Logout
+
+    private func completeLocalLogout() {
+        guard !isLoggingOut else { return }
+        isLoggingOut = true
+
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
+
+        AppSession.shared.signOut()
+
+        let cookieStore =
+            WKWebsiteDataStore.default().httpCookieStore
+
+        cookieStore.getAllCookies { [weak self] cookies in
+            guard let self = self else { return }
+
+            let relevantCookies = cookies.filter { cookie in
+                self.isYashswiCookie(cookie)
+            }
+
+            let group = DispatchGroup()
+
+            for cookie in relevantCookies {
+                group.enter()
+                cookieStore.delete(cookie) {
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) {
+                let httpStorage = HTTPCookieStorage.shared
+
+                for cookie in httpStorage.cookies ?? [] {
+                    if self.isYashswiCookie(cookie) {
+                        httpStorage.deleteCookie(cookie)
+                    }
+                }
+
+                if let window = self.view.window {
+                    window.rootViewController =
+                        LoginViewController()
+                    window.makeKeyAndVisible()
+                }
+            }
+        }
+    }
+
+    private func isYashswiCookie(_ cookie: HTTPCookie) -> Bool {
+        let domain = cookie.domain
+            .lowercased()
+            .trimmingCharacters(
+                in: CharacterSet(charactersIn: ".")
+            )
+
+        return domain == "yashswi.in" ||
+            domain.hasSuffix(".yashswi.in")
+    }
+
+    // MARK: - Navigation Errors
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        guard !isLoggingOut else { return }
+        showError(error.localizedDescription)
+    }
+
+    private func showError(_ message: String) {
+        let alert = UIAlertController(
+            title: "Unable to Load Dashboard",
+            message: message,
+            preferredStyle: .alert
+        )
+
+        alert.addAction(
+            UIAlertAction(title: "OK", style: .default)
+        )
+
+        present(alert, animated: true)
+    }
+}

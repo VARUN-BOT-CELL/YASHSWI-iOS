@@ -1,0 +1,40 @@
+import UIKit
+
+class SplashViewController: UIViewController {
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .white
+        
+        let label = UILabel()
+        label.text = "Yashswi"
+        label.font = UIFont.boldSystemFont(ofSize: 40)
+        label.textColor = UIColor(red: 0.12, green: 0.23, blue: 0.54, alpha: 1.0)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        
+        // Simulating the 3 second delay from Android
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            self.navigateToNextScreen()
+        }
+    }
+    
+   
+private func navigateToNextScreen() {
+    guard let window = view.window else {
+        return
+    }
+
+    if AppSession.shared.isAuthenticated {
+        window.rootViewController = DashboardViewController()
+    } else {
+        window.rootViewController = LoginViewController()
+    }
+}
+
+}

@@ -1,0 +1,155 @@
+
+import Foundation
+import CoreLocation
+
+final class YashswiLocationManager: NSObject,
+    CLLocationManagerDelegate {
+
+    static let shared = YashswiLocationManager()
+
+    private let manager = CLLocationManager()
+
+    private(set) var isTracking = false
+    private(set) var latestLocation: CLLocation?
+    private let minimumSubmissionInterval: TimeInterval = 60
+private var lastSubmissionAttempt: Date?
+private var submissionInProgress = false
+
+// Keep disabled until backend validation is completed.
+private let automaticSubmissionEnabled = false
+
+    var onLocationUpdated: ((CLLocation) -> Void)?
+    var onLocationError: ((Error) -> Void)?
+
+    private override init() {
+        super.init()
+
+        manager.delegate = self
+        manager.desiredAccuracy =
+            kCLLocationAccuracyNearestTenMeters
+
+        manager.distanceFilter = 25
+        manager.pausesLocationUpdatesAutomatically = true
+    }
+
+    var isLocationAvailable: Bool {
+        CLLocationManager.locationServicesEnabled() &&
+        (
+            manager.authorizationStatus == .authorizedWhenInUse ||
+            manager.authorizationStatus == .authorizedAlways
+        )
+    }
+
+    func requestPermission() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func startTracking() -> Bool {
+        guard isLocationAvailable else {
+            requestPermission()
+            return false
+        }
+
+        guard !isTracking else {
+            return true
+        }
+
+        isTracking = true
+        manager.startUpdatingLocation()
+
+        return true
+    }
+
+    func stopTracking() {
+        manager.stopUpdatingLocation()
+        isTracking = false
+        lastSubmissionAttempt = nil
+    }
+
+    func requestCurrentLocation() {
+        guard isLocationAvailable else {
+            requestPermission()
+            return
+        }
+
+        manager.requestLocation()
+    }
+    
+    // MARK: - Controlled GPS Submission
+
+    private func submitLocationIfNeeded(_ location: CLLocation) {
+        guard automaticSubmissionEnabled else { return }
+        guard isTracking else { return }
+        guard !submissionInProgress else { return }
+
+        if let lastAttempt = lastSubmissionAttempt,
+           Date().timeIntervalSince(lastAttempt) <
+                minimumSubmissionInterval {
+            return
+        }
+
+        guard AppSession.shared.authenticatedEmployeeId != nil else {
+            return
+        }
+
+        submissionInProgress = true
+        lastSubmissionAttempt = Date()
+
+        YashswiTrackingApi.shared.sendLocation(location) {
+            [weak self] result in
+
+            guard let self = self else { return }
+
+            self.submissionInProgress = false
+
+            switch result {
+            case .success:
+                // HTTP success only; server-side storage
+                // has not been independently verified.
+                break
+
+            case .failure(let error):
+                print(
+                    "GPS submission failed: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+
+    // MARK: - CLLocationManagerDelegate
+
+    func locationManager(
+        _ manager: CLLocationManager,
+        didUpdateLocations locations: [CLLocation]
+    ) {
+        guard let location = locations.last else {
+            return
+        }
+
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= 100,
+              abs(location.timestamp.timeIntervalSinceNow) <= 30 else {
+            return
+        }
+
+       latestLocation = location
+onLocationUpdated?(location)
+submitLocationIfNeeded(location)
+    }
+
+    func locationManager(
+        _ manager: CLLocationManager,
+        didFailWithError error: Error
+    ) {
+        onLocationError?(error)
+    }
+
+    func locationManagerDidChangeAuthorization(
+        _ manager: CLLocationManager
+    ) {
+        if !isLocationAvailable && isTracking {
+            stopTracking()
+        }
+    }
+}

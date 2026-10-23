@@ -1,0 +1,33 @@
+﻿name: YASHSWI
+
+options:
+  minimumXcodeGenVersion: 2.38.0
+  deploymentTarget:
+    iOS: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    GENERATE_INFOPLIST_FILE: "NO"
+
+targets:
+  YASHSWI:
+    type: application
+    platform: iOS
+
+    sources:
+      - path: ios_native_app_v2
+        excludes:
+          - "*.backup.swift"
+          - "*.bak"
+          - "*.txt"
+          - "update_yashswi_webview.ps1"
+          - "Info.plist"
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yashswi.employee
+        INFOPLIST_FILE: ios_native_app_v2/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"

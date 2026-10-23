@@ -1,0 +1,22 @@
+
+import Foundation
+
+final class AppSession {
+    static let shared = AppSession()
+
+    private(set) var currentUser: User?
+
+    private init() {}
+
+    var isAuthenticated: Bool {
+        currentUser != nil
+    }
+
+    func signIn(_ user: User) {
+        currentUser = user
+    }
+
+    func signOut() {
+        currentUser = nil
+    }
+}

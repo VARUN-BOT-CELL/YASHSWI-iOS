@@ -1,0 +1,929 @@
+
+import UIKit
+import WebKit
+import CoreLocation
+
+final class YashswiWebViewController: UIViewController,
+    WKNavigationDelegate,
+    WKDownloadDelegate {
+
+    // MARK: - Properties
+
+    private let dashboardURL: URL
+    private var webView: WKWebView!
+    private var isLoggingOut = false
+
+    private let javaScriptBridge = YashswiJavaScriptBridge()
+
+    private var downloads: [
+        ObjectIdentifier: (download: WKDownload, url: URL)
+    ] = [:]
+
+    // MARK: - Initialization
+
+    init(dashboardURL: URL) {
+        self.dashboardURL = dashboardURL
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Lifecycle
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        view.backgroundColor = .systemBackground
+
+        setupWebView()
+        setupLocationMonitoring()
+
+        // Step 78: Monitor connectivity and inspect
+        // locally queued GPS records.
+        // This does not upload or delete GPS points.
+        YashswiGPSQueueCoordinator.shared.configure()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        loadDashboard()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+
+        webView?.configuration.userContentController
+            .removeScriptMessageHandler(
+                forName: "yashswiBridge"
+            )
+    }
+
+    // MARK: - WebView Setup
+
+    private func setupWebView() {
+        let configuration = WKWebViewConfiguration()
+
+        configuration.websiteDataStore = .default()
+
+        configuration.preferences
+            .javaScriptCanOpenWindowsAutomatically = true
+
+        configuration.defaultWebpagePreferences
+            .allowsContentJavaScript = true
+
+        configuration.userContentController.add(
+            javaScriptBridge,
+            name: "yashswiBridge"
+        )
+
+        // Preserve compatibility with the existing
+        // YASHSWI AndroidApp JavaScript interface.
+        let compatibilityScript = """
+        (function() {
+            if (window.top !== window) return;
+
+            const host = window.location.hostname.toLowerCase();
+
+            if (window.location.protocol !== 'https:' ||
+                (host !== 'yashswi.in' &&
+                 !host.endsWith('.yashswi.in'))) {
+                return;
+            }
+
+            function send(action, additionalData) {
+                const handler =
+                    window.webkit &&
+                    window.webkit.messageHandlers &&
+                    window.webkit.messageHandlers.yashswiBridge;
+
+                if (!handler) return;
+
+                handler.postMessage(
+                    Object.assign(
+                        { action: action },
+                        additionalData || {}
+                    )
+                );
+            }
+            // Preserve an existing bridge object where possible.
+const existingAndroidApp = window.AndroidApp || {};
+
+          window.AndroidApp = Object.assign(existingAndroidApp, {
+                startLiveTracking: function() {
+                    send('startLiveTracking');
+                },
+
+                stopLiveTracking: function() {
+                    send('stopLiveTracking');
+                },
+
+                stopLiveTrackingWithCallback: function(callbackFn) {
+                    send('stopLiveTrackingWithCallback', {
+                        callback: String(callbackFn)
+                    });
+                },
+
+                forceSendLocation: function() {
+                    send('forceSendLocation');
+                },
+
+                logout: function() {
+                    send('logout');
+                },
+
+              getDeviceId: function() {
+    return window.__yashswiDeviceId || '';
+},
+
+getDeviceID: function() {
+    return window.__yashswiDeviceId || '';
+},
+
+              isLocationEnabled: function() {
+    return window.__yashswiLocationEnabled === true;
+},
+
+                showRewardAd: function() {
+                    send('showRewardAd');
+                }
+                      });
+        })();
+        """
+
+        let script = WKUserScript(
+            source: compatibilityScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
+        configuration.userContentController.addUserScript(script)
+        // Initialize location availability for website JavaScript.
+let locationEnabled =
+    YashswiLocationManager.shared.isLocationAvailable
+
+let locationStatusScript = """
+(function() {
+    const host = window.location.hostname.toLowerCase();
+
+    if (window.top !== window ||
+        window.location.protocol !== 'https:' ||
+        (host !== 'yashswi.in' &&
+         !host.endsWith('.yashswi.in'))) {
+        return;
+    }
+
+    window.__yashswiLocationEnabled =
+        \(locationEnabled ? "true" : "false");
+})();
+"""
+
+configuration.userContentController.addUserScript(
+    WKUserScript(
+        source: locationStatusScript,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
+)
+        // Reuse the existing Keychain-backed device identifier.
+let deviceId = DeviceIdentifier.shared.value
+
+// Encode as a JavaScript string safely.
+if !deviceId.isEmpty,
+   let jsonData = try? JSONSerialization.data(
+       withJSONObject: [deviceId],
+       options: [.fragmentsAllowed]
+   ),
+   let jsonArray = String(
+       data: jsonData,
+       encoding: .utf8
+   ) {
+
+    let deviceScript = """
+    (function() {
+        const ids = \(jsonArray);
+        window.__yashswiDeviceId = ids[0] || '';
+    })();
+    """
+
+    configuration.userContentController.addUserScript(
+        WKUserScript(
+            source: deviceScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+    )
+}
+
+        javaScriptBridge.delegate = self
+
+        webView = WKWebView(
+            frame: .zero,
+            configuration: configuration
+        )
+
+        webView.navigationDelegate = self
+        webView.allowsBackForwardNavigationGestures = true
+        webView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(webView)
+
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor
+            ),
+            webView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor
+            ),
+            webView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor
+            ),
+            webView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor
+            )
+        ])
+    }
+
+    // MARK: - Load Dashboard
+
+    private func loadDashboard() {
+        webView.load(URLRequest(url: dashboardURL))
+    }
+
+    // MARK: - URL Helpers
+
+    private func isYashswiHost(_ host: String) -> Bool {
+        let normalizedHost = host.lowercased()
+
+        return normalizedHost == "yashswi.in" ||
+            normalizedHost.hasSuffix(".yashswi.in")
+    }
+
+    private func isYashswiCookie(
+        _ cookie: HTTPCookie
+    ) -> Bool {
+        let domain = cookie.domain
+            .lowercased()
+            .trimmingCharacters(
+                in: CharacterSet(charactersIn: ".")
+            )
+
+        return isYashswiHost(domain)
+    }
+
+    private func isDownloadURL(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        let fileName = url.lastPathComponent.lowercased()
+
+        let extensions = [
+            ".pdf",
+            ".xlsx",
+            ".xls",
+            ".csv"
+        ]
+
+        if extensions.contains(where: {
+            fileName.hasSuffix($0)
+        }) {
+            return true
+        }
+
+        return path.contains("download") ||
+            path.contains("print_report") ||
+            path.contains("export")
+    }
+
+    // MARK: - Navigation Handling
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard !isLoggingOut else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        let scheme = url.scheme?.lowercased() ?? ""
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+
+        // Open phone, WhatsApp and email links externally.
+        if ["tel", "whatsapp", "mailto"].contains(scheme) {
+            decisionHandler(.cancel)
+            UIApplication.shared.open(url)
+            return
+        }
+
+        if scheme == "about" &&
+            url.absoluteString == "about:blank" {
+            decisionHandler(.allow)
+            return
+        }
+
+        guard scheme == "https" || scheme == "http" else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        let isYashswi = isYashswiHost(host)
+
+        // Detect logout or expired website login.
+        if isYashswi &&
+            (path.hasSuffix("/auth/login.php") ||
+             path.hasSuffix("/logout.php")) {
+
+            decisionHandler(.cancel)
+            completeLocalLogout()
+            return
+        }
+
+        // Keep external websites outside the app.
+        if !isYashswi {
+            decisionHandler(.cancel)
+            UIApplication.shared.open(url)
+            return
+        }
+
+        // Download known GET-based reports.
+        // Do not intercept POST submissions.
+        let method = navigationAction.request
+            .httpMethod?.uppercased() ?? "GET"
+
+        if method == "GET" && isDownloadURL(url) {
+            decisionHandler(.download)
+            return
+        }
+
+        decisionHandler(.allow)
+    }
+
+    // MARK: - Download Response Handling
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        guard !isLoggingOut else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        let response = navigationResponse.response
+
+        guard let url = response.url,
+              let host = url.host,
+              isYashswiHost(host) else {
+            decisionHandler(.allow)
+            return
+        }
+
+        let mimeType = response.mimeType?.lowercased() ?? ""
+
+        let downloadableTypes = [
+            "application/pdf",
+            "application/octet-stream",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/csv"
+        ]
+
+        var isAttachment = false
+
+        if let httpResponse = response as? HTTPURLResponse {
+            let disposition = httpResponse.value(
+                forHTTPHeaderField: "Content-Disposition"
+            )?.lowercased() ?? ""
+
+            isAttachment = disposition.contains("attachment")
+        }
+
+        if navigationResponse.isForMainFrame &&
+            (isAttachment ||
+             downloadableTypes.contains(mimeType) ||
+             !navigationResponse.canShowMIMEType) {
+
+            decisionHandler(.download)
+            return
+        }
+
+        decisionHandler(.allow)
+    }
+
+    // MARK: - Download Delegates
+
+    func webView(
+        _ webView: WKWebView,
+        navigationAction: WKNavigationAction,
+        didBecome download: WKDownload
+    ) {
+        download.delegate = self
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        navigationResponse: WKNavigationResponse,
+        didBecome download: WKDownload
+    ) {
+        download.delegate = self
+    }
+
+    // MARK: - Download Destination
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        let rawName = (suggestedFilename as NSString)
+            .lastPathComponent
+
+        let fileName: String
+
+        if rawName.isEmpty ||
+            rawName == "." ||
+            rawName == ".." {
+            fileName = "YashswiReport"
+        } else {
+            fileName = rawName
+        }
+
+        let folder = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent(
+                "YashswiDownloads",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                UUID().uuidString,
+                isDirectory: true
+            )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: folder,
+                withIntermediateDirectories: true
+            )
+
+            let destination = folder
+                .appendingPathComponent(fileName)
+
+            downloads[ObjectIdentifier(download)] = (
+                download: download,
+                url: destination
+            )
+
+            completionHandler(destination)
+
+        } catch {
+            completionHandler(nil)
+            showError(
+                "Unable to prepare the report download."
+            )
+        }
+    }
+
+    // MARK: - Download Completed
+
+    func downloadDidFinish(_ download: WKDownload) {
+        let identifier = ObjectIdentifier(download)
+
+        guard let item = downloads.removeValue(
+            forKey: identifier
+        ) else {
+            return
+        }
+
+        let fileURL = item.url
+
+        guard FileManager.default.fileExists(
+            atPath: fileURL.path
+        ) else {
+            showError("Downloaded report was not found.")
+            return
+        }
+
+        let shareController = UIActivityViewController(
+            activityItems: [fileURL],
+            applicationActivities: nil
+        )
+
+        if let popover = shareController
+            .popoverPresentationController {
+
+            popover.sourceView = view
+            popover.sourceRect = CGRect(
+                x: view.bounds.midX,
+                y: view.bounds.midY,
+                width: 1,
+                height: 1
+            )
+        }
+
+        present(shareController, animated: true)
+    }
+
+    // MARK: - Download Failed
+
+    func download(
+        _ download: WKDownload,
+        didFailWithError error: Error,
+        resumeData: Data?
+    ) {
+        downloads.removeValue(
+            forKey: ObjectIdentifier(download)
+        )
+
+        if (error as NSError).code == NSURLErrorCancelled {
+            return
+        }
+
+        showError(
+            "Report download failed: \(error.localizedDescription)"
+        )
+    }
+
+    // MARK: - Background Location Permission
+
+    private func showBackgroundLocationPermissionPrompt() {
+        let locationManager = YashswiLocationManager.shared
+
+        guard !locationManager.hasBackgroundLocationPermission else {
+            return
+        }
+
+        // Avoid presenting over another alert.
+        guard presentedViewController == nil else {
+            return
+        }
+
+        let alert = UIAlertController(
+            title: "Background Location Access",
+            message: """
+            YASHSWI uses your location during an active attendance \
+            shift to record work-related location updates.
+
+            Allowing background location helps tracking continue \
+            when the app is not on screen.
+
+            Tracking should stop when your attendance shift ends. \
+            You can manage permission in iPhone Settings.
+            """,
+            preferredStyle: .alert
+        )
+
+        alert.addAction(
+            UIAlertAction(
+                title: "Not Now",
+                style: .cancel
+            )
+        )
+
+        alert.addAction(
+            UIAlertAction(
+                title: "Continue",
+                style: .default
+            ) { _ in
+                locationManager.requestBackgroundLocationPermission()
+            }
+        )
+
+        present(alert, animated: true)
+    }
+
+    // MARK: - Location-Off Monitoring
+
+    private func setupLocationMonitoring() {
+        YashswiLocationManager.shared.onLocationDisabled = {
+            [weak self] in
+
+            DispatchQueue.main.async {
+                guard let self = self,
+                      !self.isLoggingOut else {
+                    return
+                }
+
+                self.showLocationDisabledAlert()
+            }
+        }
+    }
+    // MARK: - Location Permission Updates
+
+private func observeLocationPermissionChanges() {
+    NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(locationPermissionDidChange),
+        name: UIApplication.didBecomeActiveNotification,
+        object: nil
+    )
+}
+
+@objc private func locationPermissionDidChange() {
+    guard !isLoggingOut else { return }
+
+    refreshWebsiteLocationStatus()
+}
+    private func showLocationDisabledAlert() {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        let alert = UIAlertController(
+            title: "Location Disabled",
+            message: """
+            Your device location is unavailable.
+
+            GPS tracking has been stopped. Please enable \
+            Location Services to resume tracking.
+
+            If your attendance shift is still active, \
+            review its status before continuing.
+            """,
+            preferredStyle: .alert
+        )
+
+        alert.addAction(
+            UIAlertAction(
+                title: "OK",
+                style: .default
+            )
+        )
+
+        alert.addAction(
+            UIAlertAction(
+                title: "Open Settings",
+                style: .default
+            ) { _ in
+                guard let settingsURL = URL(
+                    string: UIApplication.openSettingsURLString
+                ) else {
+                    return
+                }
+
+                UIApplication.shared.open(settingsURL)
+            }
+        )
+
+        present(alert, animated: true)
+    }
+
+    // MARK: - Foreground Location Check
+
+   @objc private func applicationDidBecomeActive() {
+    guard !isLoggingOut else {
+        return
+    }
+
+    YashswiLocationManager.shared
+        .checkLocationAvailability()
+
+    refreshWebsiteLocationStatus()
+}
+// MARK: - Website Location Status
+
+private func refreshWebsiteLocationStatus() {
+    guard !isLoggingOut, webView != nil else {
+        return
+    }
+
+    let enabled =
+        YashswiLocationManager.shared.isLocationAvailable
+
+    let script = """
+    (function() {
+        const host = window.location.hostname.toLowerCase();
+
+        if (window.location.protocol !== 'https:' ||
+            (host !== 'yashswi.in' &&
+             !host.endsWith('.yashswi.in'))) {
+            return;
+        }
+
+        window.__yashswiLocationEnabled =
+            \(enabled ? "true" : "false");
+    })();
+    """
+
+    webView.evaluateJavaScript(script, completionHandler: nil)
+}
+    // MARK: - Local Logout
+
+    private func completeLocalLogout() {
+        guard !isLoggingOut else { return }
+
+        isLoggingOut = true
+
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
+
+        let locationManager = YashswiLocationManager.shared
+        locationManager.stopTracking()
+        locationManager.onLocationDisabled = nil
+
+        // Leave previously saved offline GPS records intact.
+        AppSession.shared.signOut()
+
+        let cookieStore = WKWebsiteDataStore
+            .default()
+            .httpCookieStore
+
+        cookieStore.getAllCookies { [weak self] cookies in
+            guard let self = self else { return }
+
+            let relevantCookies = cookies.filter {
+                self.isYashswiCookie($0)
+            }
+
+            let group = DispatchGroup()
+
+            for cookie in relevantCookies {
+                group.enter()
+
+                cookieStore.delete(cookie) {
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) {
+                let httpStorage = HTTPCookieStorage.shared
+
+                for cookie in httpStorage.cookies ?? [] {
+                    if self.isYashswiCookie(cookie) {
+                        httpStorage.deleteCookie(cookie)
+                    }
+                }
+
+                self.downloads.removeAll()
+
+                if let window = self.view.window {
+                    window.rootViewController =
+                        LoginViewController()
+                    window.makeKeyAndVisible()
+                }
+            }
+        }
+    }
+
+    // MARK: - Navigation Errors
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        guard !isLoggingOut else { return }
+
+        if (error as NSError).code == NSURLErrorCancelled {
+            return
+        }
+
+        showError(error.localizedDescription)
+    }
+
+    // MARK: - Alerts
+
+    private func showError(_ message: String) {
+        guard !isLoggingOut else { return }
+
+        let alert = UIAlertController(
+            title: "YASHSWI",
+            message: message,
+            preferredStyle: .alert
+        )
+
+        alert.addAction(
+            UIAlertAction(title: "OK", style: .default)
+        )
+
+        present(alert, animated: true)
+    }
+}
+
+// MARK: - JavaScript Bridge Delegate
+
+extension YashswiWebViewController:
+    YashswiJavaScriptBridgeDelegate {
+
+    // MARK: - Logout
+
+    func bridgeDidRequestLogout() {
+        completeLocalLogout()
+    }
+
+    // MARK: - Start GPS Tracking
+
+    func bridgeDidRequestStartTracking() {
+        guard !isLoggingOut else {
+            return
+        }
+
+        guard let employeeId =
+            AppSession.shared.authenticatedEmployeeId,
+            !employeeId.isEmpty else {
+
+            showError(
+                "Please log in before starting GPS tracking."
+            )
+            return
+        }
+
+        let locationManager = YashswiLocationManager.shared
+
+        // Do not restart an active session.
+        if locationManager.isTracking {
+            return
+        }
+
+        guard locationManager.isLocationAvailable else {
+            locationManager.requestPermission()
+
+            showError(
+                "Location permission is required for attendance tracking. Please allow location access and try again."
+            )
+            return
+        }
+
+        let started = locationManager.startTracking()
+
+        guard started else {
+            showError(
+                "Unable to start GPS tracking. Please check your location settings."
+            )
+            return
+        }
+
+        // Request background permission after the
+        // employee initiates the tracking session.
+        if !locationManager.hasBackgroundLocationPermission {
+            showBackgroundLocationPermissionPrompt()
+        }
+    }
+
+    // MARK: - Stop GPS Tracking
+
+    func bridgeDidRequestStopTracking(callback: String?) {
+        guard !isLoggingOut else {
+            return
+        }
+
+        // Only stop native GPS collection.
+        YashswiLocationManager.shared.stopTracking()
+
+        // Preserve saved offline GPS points.
+        //
+        // Do not call the website callback with true.
+        // A native GPS stop does not confirm that
+        // the PHP attendance server recorded Punch Out.
+        //
+        // Callback behavior must be matched to the
+        // original website contract before enabling it.
+        _ = callback
+    }
+
+    // MARK: - Manual Location Update
+
+   func bridgeDidRequestLocationUpdate() {
+    guard !isLoggingOut else { return }
+
+    let locationManager = YashswiLocationManager.shared
+
+    guard locationManager.isTracking else {
+        showError(
+            "Start attendance GPS tracking before requesting a location update."
+        )
+        return
+    }
+
+    guard locationManager.isLocationAvailable else {
+        showError(
+            "Location is unavailable. Please enable location access."
+        )
+        return
+    }
+
+    // Obtain a fresh location locally.
+    // Do not send it to production automatically.
+    locationManager.requestCurrentLocation()
+}
+
+    // MARK: - Reward Advertisement
+
+    func bridgeDidRequestRewardAd() {
+        showError(
+            "Rewarded advertisements are not available yet."
+        )
+    }
+}
