@@ -49,6 +49,30 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee "$RUNNER_TEMP/yashswi-build.log"
 
+      - name: Package app for Appetize
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_DIR="$RUNNER_TEMP/YASHSWI-DerivedData/Build/Products/Debug-iphonesimulator"
+          APP_PATH="$APP_DIR/YASHSWI.app"
+
+          test -d "$APP_PATH"
+          test -f "$APP_PATH/Info.plist"
+          test -f "$APP_PATH/YASHSWI"
+
+          cd "$APP_DIR"
+          /usr/bin/zip -qry "$RUNNER_TEMP/YASHSWI-Appetize.zip" YASHSWI.app
+
+          echo "Appetize ZIP created"
+          unzip -l "$RUNNER_TEMP/YASHSWI-Appetize.zip" | head -25
+
+      - name: Upload Appetize package
+        uses: actions/upload-artifact@v4
+        with:
+          name: YASHSWI-Appetize-Package
+          path: ${{ runner.temp }}/YASHSWI-Appetize.zip
+          if-no-files-found: error
       - name: Upload compilation logs
         if: always()
         uses: actions/upload-artifact@v4
