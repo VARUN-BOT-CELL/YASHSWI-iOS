@@ -8,15 +8,33 @@ final class KeychainHelper {
 
     private init() {}
 
+    // Log status codes only. Never log stored values,
+    // passwords, device IDs or employee data.
+    private func report(
+        _ operation: String,
+        status: OSStatus
+    ) {
+        let description =
+            SecCopyErrorMessageString(status, nil) as String?
+            ?? "Unknown security error"
+
+        NSLog(
+            "[YASHSWI Keychain] %@ failed: OSStatus %d (%@)",
+            operation,
+            Int(status),
+            description
+        )
+    }
+
     // MARK: - Save or Update
 
     func save(_ data: Data, forKey key: String) -> Bool {
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key
         ]
 
-        // First update the existing item without deleting it.
         let updateAttributes: [String: Any] = [
             kSecValueData as String: data
         ]
@@ -30,8 +48,8 @@ final class KeychainHelper {
             return true
         }
 
-        // Only create an item when it does not already exist.
         guard updateStatus == errSecItemNotFound else {
+            report("Update", status: updateStatus)
             return false
         }
 
@@ -49,15 +67,21 @@ final class KeychainHelper {
             return true
         }
 
-        // Handle the rare case where another operation
-        // created the same item before this add completed.
         if addStatus == errSecDuplicateItem {
-            return SecItemUpdate(
+            let retryStatus = SecItemUpdate(
                 query as CFDictionary,
                 updateAttributes as CFDictionary
-            ) == errSecSuccess
+            )
+
+            if retryStatus == errSecSuccess {
+                return true
+            }
+
+            report("Retry update", status: retryStatus)
+            return false
         }
 
+        report("Add", status: addStatus)
         return false
     }
 
@@ -72,8 +96,6 @@ final class KeychainHelper {
             return nil
         }
     }
-
-    // MARK: - Read With Error Information
 
     enum KeychainError: Error {
         case itemNotFound
@@ -104,10 +126,12 @@ final class KeychainHelper {
         }
 
         guard status == errSecSuccess else {
+            report("Read", status: status)
             return .failure(.securityError(status))
         }
 
         guard let data = result as? Data else {
+            NSLog("[YASHSWI Keychain] Unexpected read data type")
             return .failure(.unexpectedData)
         }
 
@@ -117,6 +141,7 @@ final class KeychainHelper {
     // MARK: - Delete
 
     func delete(forKey key: String) -> Bool {
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key
@@ -124,7 +149,12 @@ final class KeychainHelper {
 
         let status = SecItemDelete(query as CFDictionary)
 
-        return status == errSecSuccess ||
-            status == errSecItemNotFound
+        if status == errSecSuccess ||
+            status == errSecItemNotFound {
+            return true
+        }
+
+        report("Delete", status: status)
+        return false
     }
 }
