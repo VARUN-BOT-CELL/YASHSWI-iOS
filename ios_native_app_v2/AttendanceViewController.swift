@@ -145,7 +145,7 @@ final class AttendanceViewController: UIViewController,
             showMessage("Could not read the photo. Please try again.")
             return
         }
-        attendancePhoto = jpegData.base64EncodedString()
+        attendancePhoto = "data:image/jpeg;base64," + jpegData.base64EncodedString()
         photoPreview.image = image
         statusLabel.text = "Photo captured. Get your location next."
         updateSubmitButton()

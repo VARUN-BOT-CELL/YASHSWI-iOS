@@ -213,10 +213,13 @@ extension ProductListViewController: UITableViewDataSource, UITableViewDelegate 
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(
+        guard let cell = tableView.dequeueReusableCell(
             withIdentifier: "ProductCell",
             for: indexPath
-        ) as! ProductCell
+        ) as? ProductCell else {
+            assertionFailure("ProductCell registration mismatch")
+            return UITableViewCell(style: .default, reuseIdentifier: nil)
+        }
 
         cell.configure(with: filteredProducts[indexPath.row])
         return cell

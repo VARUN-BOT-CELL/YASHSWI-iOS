@@ -17,9 +17,19 @@ struct YashswiTrackingServerResponse {
         self.httpStatusCode = httpStatusCode
         self.responseBody = responseBody
 
-        // Server response format has not been verified.
-        // Never assume HTTP 200 means GPS was saved.
-        self.isConfirmedSaved = false
+        // Confirm GPS storage only when the PHP endpoint
+        // explicitly returns {"success":true} with HTTP 2xx.
+        guard (200...299).contains(httpStatusCode),
+              let data = responseBody.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(
+                  with: data
+              ) as? [String: Any],
+              let saved = json["success"] as? Bool else {
+            self.isConfirmedSaved = false
+            return
+        }
+
+        self.isConfirmedSaved = saved
     }
 }
 

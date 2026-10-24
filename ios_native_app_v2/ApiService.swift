@@ -181,8 +181,114 @@ session.dataTask(with: request) {
         postRequest(endpoint: "native_login.php", requestData: request, completion: completion)
     }
     
-    func submitAttendance(request: AttendanceRequest, completion: @escaping (Result<AttendanceResponse, Error>) -> Void) {
-        postRequest(endpoint: "save_attendance.php", requestData: request, completion: completion)
+    func submitAttendance(
+        request: AttendanceRequest,
+        completion: @escaping (Result<AttendanceResponse, Error>) -> Void
+    ) {
+        guard let url = URL(
+            string: "https://yashswi.in/attendance/save_attendance.php"
+        ) else {
+            DispatchQueue.main.async {
+                completion(.failure(ApiError.invalidURL))
+            }
+            return
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 30
+        urlRequest.setValue(
+            "application/x-www-form-urlencoded",
+            forHTTPHeaderField: "Content-Type"
+        )
+        urlRequest.setValue(
+            "application/json",
+            forHTTPHeaderField: "Accept"
+        )
+
+        let parameters: [(String, String)] = [
+            ("site", request.address),
+            ("photo", request.photo),
+            ("lat", request.lat),
+            ("lng", request.lng),
+            ("address", request.address),
+            ("maplink", "https://www.google.com/maps?q=\(request.lat),\(request.lng)"),
+            ("device_time", request.deviceTime)
+        ]
+
+        var components = URLComponents()
+        components.queryItems = parameters.map {
+            URLQueryItem(name: $0.0, value: $0.1)
+        }
+
+        let body = (components.percentEncodedQuery ?? "")
+            .replacingOccurrences(of: "%20", with: "+")
+
+        urlRequest.httpBody = body.data(using: .utf8)
+
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = HTTPCookieStorage.shared
+        configuration.httpShouldSetCookies = true
+
+        let session = URLSession(configuration: configuration)
+
+        session.dataTask(with: urlRequest) { data, response, error in
+            func finish(_ result: Result<AttendanceResponse, Error>) {
+                DispatchQueue.main.async {
+                    completion(result)
+                }
+            }
+
+            if let error = error {
+                finish(.failure(error))
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                finish(.failure(
+                    ApiError.serverError("Invalid attendance response.")
+                ))
+                return
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                finish(.failure(ApiError.httpError(httpResponse.statusCode)))
+                return
+            }
+
+            guard let data = data,
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let json = object as? [String: Any],
+                  let success = json["success"] as? Bool else {
+                finish(.failure(ApiError.decodingError))
+                return
+            }
+
+            let type = json["type"] as? String ?? ""
+
+            let message = json["message"] as? String
+                ?? (success ? "Attendance saved successfully." :
+                    "Attendance submission was rejected.")
+
+            guard !success ||
+                  type == "IN" ||
+                  type == "OUT" else {
+                finish(.failure(
+                    ApiError.serverError(
+                        "Attendance server returned an unknown action."
+                    )
+                ))
+                return
+            }
+
+            finish(.success(
+                AttendanceResponse(
+                    success: success,
+                    type: type,
+                    message: message
+                )
+            ))
+        }.resume()
     }
     
     func submitFsr(request: FsrRequest, completion: @escaping (Result<GenericResponse, Error>) -> Void) {

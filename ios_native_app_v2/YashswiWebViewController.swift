@@ -362,8 +362,48 @@ final class YashswiWebViewController: UIViewController,
     ) {
         hidePageLoading()
         refreshWebsiteLocationStatus()
+        refreshWebsiteBatteryStatus()
+        reconcileAttendanceStatus()
     }
 
+    // MARK: - Attendance Status Reconciliation
+
+    private func reconcileAttendanceStatus() {
+        guard !isLoggingOut else { return }
+
+        guard let employeeId =
+            AppSession.shared.authenticatedEmployeeId,
+            !employeeId.isEmpty else {
+            return
+        }
+
+        // Remains disabled until the PHP endpoint
+        // is deployed and authenticated responses verified.
+        let attendanceReconciliationEnabled = false
+
+        guard attendanceReconciliationEnabled else {
+            return
+        }
+
+        YashswiAttendanceStatusApi.shared.fetchStatus {
+            [weak self] result in
+
+            guard let self = self,
+                  !self.isLoggingOut else {
+                return
+            }
+
+            switch result {
+            case .success(let status):
+                // No automatic GPS state changes.
+                print("Attendance state: \(status.attendanceStatus)")
+
+            case .failure:
+                // Unknown state is not confirmed Punch Out.
+                print("Attendance status could not be verified.")
+            }
+        }
+    }
     // MARK: - Navigation Handling
 
     func webView(
@@ -887,6 +927,7 @@ final class YashswiWebViewController: UIViewController,
             .checkLocationAvailability()
 
         refreshWebsiteLocationStatus()
+        refreshWebsiteBatteryStatus()
 
         YashswiPunchOutSyncCoordinator.shared
             .inspectPendingRequests()
@@ -915,6 +956,65 @@ final class YashswiWebViewController: UIViewController,
 
             window.__yashswiLocationEnabled =
                 \(enabled ? "true" : "false");
+        })();
+        """
+
+        webView.evaluateJavaScript(
+            script,
+            completionHandler: nil
+        )
+    }
+
+    // MARK: - Website Battery Integration
+
+    private func refreshWebsiteBatteryStatus() {
+        guard !isLoggingOut,
+              webView != nil,
+              let url = webView.url,
+              url.scheme?.lowercased() == "https",
+              let host = url.host,
+              isYashswiHost(host) else {
+            return
+        }
+
+        let information = batteryInformationForWebsite()
+
+        guard JSONSerialization.isValidJSONObject(information),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: information
+              ),
+              let json = String(
+                  data: data,
+                  encoding: .utf8
+              ) else {
+            return
+        }
+
+        let script = """
+        (function() {
+            if (window.top !== window) {
+                return;
+            }
+
+            const host =
+                window.location.hostname.toLowerCase();
+
+            if (window.location.protocol !== 'https:' ||
+                (host !== 'yashswi.in' &&
+                 !host.endsWith('.yashswi.in'))) {
+                return;
+            }
+
+            const batteryData = \(json);
+
+            window.YashswiBattery = batteryData;
+
+            window.dispatchEvent(
+                new CustomEvent(
+                    'yashswiBatteryUpdated',
+                    { detail: batteryData }
+                )
+            );
         })();
         """
 
